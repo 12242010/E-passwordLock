@@ -1,0 +1,1008 @@
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: D:\软件\keil\C51\BIN\C51.EXE main.c DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          #include "reg52.H"
+   2          #include "stdio.h"
+   3          #include "intrins.h"
+   4          
+   5          unsigned char key_value;
+   6          
+   7          #define DB P0//液晶并行数据接口
+   8          sbit  RS = P2^6;//液晶指令数据信号
+   9          sbit  RW = P2^5;//液晶读写信号
+  10          sbit  E  = P2^7;//液晶使能信号
+  11          
+  12          sbit I2C_SCL = P2^3;//i2c时钟线定义
+  13          sbit I2C_SDA = P2^4;//i2c数据线定义
+  14          
+  15          unsigned char now_window;//当前显示窗口
+  16          #define  chosemod  10//输入密码状态
+  17          #define  inputpassword  20//输入密码状态
+  18          #define  changepassword  30//输入密码状态
+  19          #define  putagain  31//再次输入密码状态
+  20          #define  keynoser  40//输入密码无效
+  21          #define  changeoldpassword  50//输入密码状态
+  22          
+  23          
+  24          unsigned char dis_dat[7]={0};
+  25          unsigned char password_now[7]={2,2,3,4,5,6};//输入当前密码保存数组
+  26          unsigned char password[7]={1,2,3,1,2,3};//密码保存
+  27          unsigned char chang_pass[7];//密码修改存储
+  28          signed   char curr_bit;//输入当前位
+  29          unsigned char curr_bit_tmp;//输入当前位备份
+  30          unsigned char i;
+  31          unsigned char cnt_100ms;
+  32          unsigned char time_100ms_flag;
+  33          unsigned char open_del;//开锁成功延时计数
+  34          unsigned char open_flag;//锁状态标志
+  35          unsigned char lock_flag;//锁状态标志
+  36          
+  37          unsigned char password_err_cnt;//密码错误次数
+  38          unsigned int  err_tim_cnt;//密码错误次数
+  39          unsigned char cha_err_cnt;//修改密码错误延时计数
+  40          unsigned char cha_err_flag;//修改密码错误标志
+  41          
+  42          unsigned char alm_tim_cnt;//报警时间计数
+  43          unsigned char alm_flag;//报警标志
+  44          
+  45          sbit relay = P3^2;
+  46          sbit beep = P2^0;
+  47          
+  48          /*******************************************************************************
+  49          * 函 数 名         : delay_ms
+  50          * 函数功能                 : 延时函数，延时1ms
+  51          * 输    入         : cnt
+  52          * 输    出         : 无
+  53          * 说    名         : 该函数是在12MHZ晶振下，12分频单片机的延时。
+  54          *******************************************************************************/
+  55          void delay_ms(unsigned int cnt)   //
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 2   
+
+  56          {
+  57   1              unsigned int x;
+  58   1              for( ; cnt>0; cnt--)
+  59   1              {
+  60   2                      for(x=110; x>0; x--);//软件延时为1MS
+  61   2              }
+  62   1      }
+  63          
+  64          /*******************************************************************************
+  65          * 函 数 名         : delay_us
+  66          * 函数功能                 : 延时函数，延时1us
+  67          * 输    入         : cnt
+  68          * 输    出         : 无
+  69          * 说    名         : 该函数是在12MHZ晶振下，12分频单片机的延时。
+  70          *******************************************************************************/
+  71          void delay_us(unsigned int cnt)   //
+  72          {
+  73   1              while(cnt--);
+  74   1      }
+  75          
+  76          /******************************************************
+  77          ** 函数名：time_init
+  78          ** 描述  ：定时器初始化
+  79          ** 输入  ：无
+  80          ** 输出  ：无
+  81          ******************************************************/
+  82          void time_init(void)
+  83          {
+  84   1                TMOD |= 0x01;//time0 工作方式为1
+  85   1                TH0 = 0xf8;//装载初值
+  86   1                TL0 = 0x2f;//装载初值，为2ms(65535-63535)
+  87   1            TR0 = 1;//开启定时器
+  88   1                ET0 = 1;//打开中断
+  89   1                EA=1;
+  90   1      }
+  91          /******************************************************
+  92          ** 函数名：key_scan
+  93          ** 描述  ：按键扫描
+  94          ** 输入  ：无
+  95          ** 输出  ：无
+  96          ******************************************************/
+  97          void key_scan(void)
+  98          {
+  99   1              static unsigned char key_in_flag = 0;//按键按下标志
+ 100   1              unsigned char key_l,key_h;//存储扫描到行列值。
+ 101   1              key_value = 20;//按键值清除
+ 102   1              P1 = 0xf0;
+ 103   1              if((P1 & 0xf0) != 0xf0)//按键按下
+ 104   1              {
+ 105   2                      delay_ms(5);//按键消抖动
+ 106   2                      if(((P1 & 0xf0) != 0xf0) && (key_in_flag == 1))
+ 107   2                      {
+ 108   3                              key_in_flag = 0;//松手检测防止一直触发
+ 109   3                              key_l = P1;//扫描得到行值
+ 110   3                              P1 = 0x0f;
+ 111   3                              key_h= P1;////扫描得到列值
+ 112   3                              switch(key_l|key_h)
+ 113   3                              {
+ 114   4                                      //获取按键值
+ 115   4                                      case 0xee:  key_value = 1;break;
+ 116   4                                      case 0xed:  key_value = 2;break;
+ 117   4                                      case 0xeb:  key_value = 3;break;
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 3   
+
+ 118   4                                      case 0xe7:  key_value = 10;break;
+ 119   4      
+ 120   4                                      case 0xde:  key_value = 4;break;
+ 121   4                                      case 0xdd:  key_value = 5;break;
+ 122   4                                      case 0xdb:  key_value = 6;break;
+ 123   4                                      case 0xd7:  key_value = 11;break;
+ 124   4      
+ 125   4                                      case 0xbe:  key_value = 7;break;
+ 126   4                                      case 0xbd:  key_value = 8;break;
+ 127   4                                      case 0xbb:  key_value = 9;break;
+ 128   4                                      case 0xb7:  key_value = 12;break;
+ 129   4      
+ 130   4                                      case 0x7e:  key_value = 13;break;
+ 131   4                                      case 0x7d:  key_value = 0;break;
+ 132   4                                      case 0x7b:  key_value = 14;break;
+ 133   4                                      case 0x77:  key_value = 15;break;
+ 134   4                              }
+ 135   3                      }
+ 136   2              }
+ 137   1              else
+ 138   1              {
+ 139   2                      key_in_flag = 1;//(按键松开标志)
+ 140   2              }
+ 141   1      }
+ 142          /*******************************************************************************
+ 143          * 函 数 名         : LcdWriteCom
+ 144          * 函数功能                 : 向LCD写入一个字节的命令
+ 145          * 输    入         : u8com
+ 146          * 输    出         : 无
+ 147          *******************************************************************************/
+ 148          void lcd_wri_com(unsigned char com)       //写入命令
+ 149          {
+ 150   1              E = 0;   //使能清零
+ 151   1              RS = 0;  //选择写入命令
+ 152   1              RW = 0;  //选择写入
+ 153   1      
+ 154   1              DB = com;
+ 155   1              delay_ms(1);//延时
+ 156   1      
+ 157   1              E = 1;   //写入时序
+ 158   1              delay_ms(5);//延时
+ 159   1              E = 0;
+ 160   1      }
+ 161          
+ 162          /*******************************************************************************
+ 163          * 函 数 名         : LcdWriteData
+ 164          * 函数功能                 : 向LCD写入一个字节的数据
+ 165          * 输    入         : u8dat
+ 166          * 输    出         : 无
+ 167          *******************************************************************************/
+ 168          
+ 169          void lcd_wri_data(unsigned char dat)//写入数据
+ 170          {
+ 171   1              E = 0;    //使能清零
+ 172   1              RS = 1;   //选择写入数据
+ 173   1              RW = 0;   //选择写入
+ 174   1              DB = dat;
+ 175   1              delay_ms(1);//延时
+ 176   1              E = 1;    //写入时序
+ 177   1              delay_ms(5);//延时
+ 178   1              E = 0;
+ 179   1      }
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 4   
+
+ 180          /*******************************************************************************
+ 181          * 函 数 名         : WriString
+ 182          * 函数功能                 : 刷新屏幕显示
+ 183          * 输    入         : hang，add，*p
+ 184          * 输    出         : 无
+ 185          *******************************************************************************/
+ 186          void wri_string(unsigned char y,unsigned char x,unsigned char *p)
+ 187          {
+ 188   1              if(y==1)//如果选择第一行
+ 189   1                      lcd_wri_com(0x80+x);//选中地址
+ 190   1              else
+ 191   1                      lcd_wri_com(0xc0+x);//选中地址
+ 192   1                      while(*p)
+ 193   1                      {
+ 194   2                              lcd_wri_data(*p);//写入数据
+ 195   2                              p++;
+ 196   2                      }
+ 197   1      }
+ 198          /*******************************************************************************
+ 199          * 函 数 名         : lcd_write_char
+ 200          * 函数功能                 :
+ 201          * 输    入         :
+ 202          * 输    出         : 无
+ 203          *******************************************************************************/
+ 204          void lcd_write_char(unsigned char y, unsigned char x, unsigned char dat) //列x=0~15,行y=0,1
+ 205          {
+ 206   1              unsigned char temp_l, temp_h;
+ 207   1              if(y==1)//如果选择第一行
+ 208   1                      lcd_wri_com(0x80+x);//选中地址
+ 209   1              else
+ 210   1                      lcd_wri_com(0xc0+x);//选中地址
+ 211   1              temp_l = dat % 10;
+ 212   1          temp_h = dat / 10;
+ 213   1          lcd_wri_data(temp_h + 0x30);//写入数据          //convert to ascii
+ 214   1          lcd_wri_data(temp_l + 0x30);//写入数据
+ 215   1      }
+ 216          /*********************光标控制***********************/
+ 217          void lcd1602_cursor(unsigned char on_off,unsigned char add)
+ 218          {
+ 219   1              if(on_off == 1)   //开光标
+ 220   1              {
+ 221   2                      lcd_wri_com(0xc0+add);              //将光标移动到秒个位
+ 222   2                      lcd_wri_com(0x0f);                //显示光标并且闪烁
+ 223   2              }
+ 224   1              else
+ 225   1              {
+ 226   2                      lcd_wri_com(0x0c);   //关光标
+ 227   2              }
+ 228   1      }
+ 229          
+ 230          /*******************************************************************************
+ 231          * 函 数 名       : LcdInit()
+ 232          * 函数功能               : 初始化LCD屏
+ 233          * 输    入       : 无
+ 234          * 输    出       : 无
+ 235          *******************************************************************************/
+ 236          void lcd_init(void)                                               //LCD初始化子程序
+ 237          {
+ 238   1              lcd_wri_com(0x38);//置功能8位双行
+ 239   1              lcd_wri_com(0x0c);//显示开关光标
+ 240   1              lcd_wri_com(0x06);//字符进入模式屏幕不动字符后移
+ 241   1              delay_ms(5);//延时5ms
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 5   
+
+ 242   1              lcd_wri_com(0x01);  //清屏
+ 243   1              wri_string(1,0,"  welcome user  ");//初始化显示
+ 244   1              wri_string(2,0,"A:open  B:modify");//初始化显示
+ 245   1      }
+ 246          /*******************************************************************************
+ 247          * 函 数 名         : I2C_Start()
+ 248          * 函数功能                 : 起始信号：在I2C_SCL时钟信号在高电平期间I2C_SDA信号产生一个下降沿
+ 249          * 输    入         : 无
+ 250          * 输    出         : 无
+ 251          * 备    注         : 起始之后I2C_SDA和I2C_SCL都为0
+ 252          *******************************************************************************/
+ 253          void I2C_Start()
+ 254          {
+ 255   1              I2C_SCL = 1;//时钟线拉高
+ 256   1              delay_us(6);//延时
+ 257   1              I2C_SDA = 1;//数据线拉高
+ 258   1              delay_us(6);//延时
+ 259   1              I2C_SDA = 0;//数据线拉低
+ 260   1              delay_us(6);//延时
+ 261   1              I2C_SCL = 0;//时钟线拉低
+ 262   1              delay_us(6);//延时
+ 263   1      }
+ 264          /*******************************************************************************
+ 265          * 函 数 名           : I2C_Stop()
+ 266          * 函数功能               : 终止信号：在I2C_SCL时钟信号高电平期间I2C_SDA信号产生一个上升沿
+ 267          * 输    入           : 无
+ 268          * 输    出               : 无
+ 269          * 备    注           : 结束之后保持I2C_SDA和I2C_SCL都为1；表示总线空闲
+ 270          *******************************************************************************/
+ 271          void I2C_Stop()
+ 272          {
+ 273   1              I2C_SCL = 0;//时钟线拉低
+ 274   1              delay_us(6);//延时
+ 275   1              I2C_SDA = 0;//数据线拉低
+ 276   1              delay_us(6);//延时
+ 277   1              I2C_SCL = 1;//时钟线拉高
+ 278   1              delay_us(6);//延时
+ 279   1              I2C_SDA = 1;//数据线拉高
+ 280   1              delay_us(6);//延时
+ 281   1      }
+ 282          void i2c_ACK(unsigned char ck)
+ 283          {
+ 284   1          if (ck)
+ 285   1                      I2C_SDA = 0;//数据线拉低
+ 286   1          else
+ 287   1                      I2C_SDA = 1;//时钟线拉高
+ 288   1          delay_us(6);//延时
+ 289   1          I2C_SCL = 1;//时钟线拉高
+ 290   1          delay_us(6);//延时
+ 291   1          I2C_SCL = 0;//时钟线拉低
+ 292   1              delay_us(6);//延时
+ 293   1          I2C_SDA = 1;
+ 294   1          delay_us(6);//延时
+ 295   1      }
+ 296          unsigned char i2c_waitACK()
+ 297          {
+ 298   1              I2C_SDA = 1;
+ 299   1              delay_us(6);//延时
+ 300   1              I2C_SCL = 1;//时钟线拉高
+ 301   1              delay_us(6);//延时
+ 302   1              if (I2C_SDA)
+ 303   1              {
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 6   
+
+ 304   2                      I2C_SCL = 0;//时钟线拉低
+ 305   2                      I2C_Stop();
+ 306   2                      return 1;
+ 307   2              }
+ 308   1              else
+ 309   1              {
+ 310   2                      I2C_SCL = 0;//时钟线拉低
+ 311   2                      return 0;
+ 312   2              }
+ 313   1      }
+ 314          void I2C_SendByte(unsigned char bt)
+ 315          {
+ 316   1              unsigned char i;
+ 317   1          for(i=0; i<8; i++)
+ 318   1          {
+ 319   2              if (bt & 0x80)
+ 320   2                              I2C_SDA = 1;
+ 321   2              else
+ 322   2                              I2C_SDA = 0;//数据线拉低
+ 323   2              delay_us(6);//延时
+ 324   2              I2C_SCL = 1;//时钟线拉高
+ 325   2              bt <<= 1;
+ 326   2              delay_us(6);//延时
+ 327   2              I2C_SCL = 0;//时钟线拉低
+ 328   2          }
+ 329   1      }
+ 330          /*******************************************************************************
+ 331          * 函 数 名           : I2cReadByte()
+ 332          * 函数功能               : 使用I2c读取一个字节
+ 333          * 输    入           : 无
+ 334          * 输    出               : dat
+ 335          * 备    注           : 接收完一个字节I2C_SCL=0
+ 336          *******************************************************************************/
+ 337          
+ 338          unsigned char I2C_ReadByte()
+ 339          {
+ 340   1                      unsigned char dee, i;
+ 341   1      
+ 342   1                      for (i=0; i<8; i++)
+ 343   1                      {
+ 344   2                              I2C_SCL = 1;//时钟线拉高
+ 345   2                              delay_us(6);
+ 346   2                              dee <<= 1;
+ 347   2                              if (I2C_SDA)
+ 348   2                                      dee = dee | 0x01;
+ 349   2                              I2C_SCL = 0;//时钟线拉低
+ 350   2                              delay_us(6);
+ 351   2                      }
+ 352   1                      return dee;
+ 353   1      }
+ 354          /*******************************************************************************
+ 355          * 函 数 名         : void At24c02Write(unsigned char u8addr,unsigned char u8dat)
+ 356          * 函数功能                 : 往24c02的一个地址写入一个数据
+ 357          * 输    入         : 无
+ 358          * 输    出         : 无
+ 359          *******************************************************************************/
+ 360          unsigned char At24c02Write(unsigned char u8addr,unsigned char u8dat)
+ 361          {
+ 362   1              I2C_Start();//起始信号
+ 363   1              I2C_SendByte(0xa0);//发送写器件地址
+ 364   1              if (i2c_waitACK())
+ 365   1                      return 1;
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 7   
+
+ 366   1              I2C_SendByte(u8addr);//发送要写入内存地址
+ 367   1              if (i2c_waitACK())
+ 368   1                      return 1;
+ 369   1              I2C_SendByte(u8dat);//发送数据
+ 370   1              if (i2c_waitACK())
+ 371   1                      return 1;
+ 372   1              I2C_Stop();//停止信号
+ 373   1              delay_ms(3);//延时
+ 374   1              return 0;
+ 375   1      }
+ 376          /*******************************************************************************
+ 377          * 函 数 名         : unsigned char At24c02Read(unsigned char addr)
+ 378          * 函数功能                 : 读取24c02的一个地址的一个数据
+ 379          * 输    入         : 无
+ 380          * 输    出         : 无
+ 381          *******************************************************************************/
+ 382          
+ 383          unsigned char At24c02Read(unsigned char u8addr,unsigned char *dat)
+ 384          {
+ 385   1      
+ 386   1              I2C_Start();
+ 387   1              I2C_SendByte(0xa0); //发送写器件地址
+ 388   1              if (i2c_waitACK())
+ 389   1                      return 1;
+ 390   1              I2C_SendByte(u8addr); //发送要读取的地址
+ 391   1              if (i2c_waitACK())
+ 392   1                      return 1;
+ 393   1              I2C_Start();
+ 394   1              I2C_SendByte(0xa1); //发送读器件地址
+ 395   1              if (i2c_waitACK())
+ 396   1                      return 1;
+ 397   1              *dat=I2C_ReadByte(); //读取数据
+ 398   1              i2c_ACK(0);
+ 399   1              I2C_Stop();
+ 400   1              return 0;
+ 401   1      }
+ 402          unsigned char At24c02WriteBuf(unsigned char *buf, unsigned char addr, unsigned char len)
+ 403          {
+ 404   1              while (len--)
+ 405   1              {
+ 406   2                      if (At24c02Write(addr++, *buf++))//连续写数据
+ 407   2                              return 1;
+ 408   2              }
+ 409   1              return 0;
+ 410   1      }
+ 411          unsigned char At24c02ReadBuf(unsigned char *buf, unsigned char addr, unsigned char len)
+ 412          {
+ 413   1              while (len--)
+ 414   1              {
+ 415   2                      if (At24c02Read(addr++,buf++))//连续读取数据
+ 416   2                      return 1;
+ 417   2              }
+ 418   1              return 0;
+ 419   1      }
+ 420          void At24c02init(void)//密码初始化
+ 421          {
+ 422   1              unsigned char value;
+ 423   1              At24c02ReadBuf(&value,0x0a,1);
+ 424   1              if (value!=0xca)//第一次使用地址不是bb
+ 425   1              {
+ 426   2                      value = 0xcc;
+ 427   2                      At24c02WriteBuf(&value,0x0a,1);
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 8   
+
+ 428   2                      At24c02WriteBuf(password,0,6);
+ 429   2              }
+ 430   1              At24c02ReadBuf(password,0,6);
+ 431   1      }
+ 432          /******************************************************
+ 433           ** 函数名：time_service
+ 434           ** 描述  ：定时处理函数
+ 435           ** 输入  : 无
+ 436           ** 输出  ：无
+ 437           ** 调用  ：中断调用
+ 438           ******************************************************/
+ 439          void time_service(void)
+ 440          {
+ 441   1                      if(time_100ms_flag)
+ 442   1                      {
+ 443   2                              time_100ms_flag = 0;
+ 444   2                              if (alm_tim_cnt)
+ 445   2                              alm_tim_cnt--;
+ 446   2                              if (relay==0)//延时自动关锁
+ 447   2                              {
+ 448   3                                      if(++open_del >= 10 * 5)        //10秒
+ 449   3                                      {
+ 450   4                                              open_del = 0;
+ 451   4                                          relay = 1;   //关闭密码锁
+ 452   4                                          now_window = chosemod;
+ 453   4                                              wri_string(1,0,"  welcome user  ");//初始化显示
+ 454   4                                              wri_string(2,0,"A:open  B:modify");//初始化显示
+ 455   4                                      }
+ 456   3                              }
+ 457   2                              if (open_flag)
+ 458   2                              {
+ 459   3                                      if(alm_flag)
+ 460   3                                      {
+ 461   4                                               if (alm_tim_cnt==0)
+ 462   4                                               {
+ 463   5                                                       alm_flag = 0;
+ 464   5                                       alm_tim_cnt = 2;
+ 465   5                                                       beep = 1;
+ 466   5                                               }
+ 467   4                                      }
+ 468   3                                      else
+ 469   3                                      {
+ 470   4                                               if (alm_tim_cnt==0)
+ 471   4                                               {
+ 472   5                                                       alm_flag = 1;
+ 473   5                                       alm_tim_cnt = 2;
+ 474   5                                                       beep = 0;
+ 475   5                                               }
+ 476   4                                      }
+ 477   3                                      if(++open_del >= 10 * 2)
+ 478   3                                      {
+ 479   4                                              open_del = 0;
+ 480   4                                              open_flag = 0;
+ 481   4                                              alm_flag = 0;
+ 482   4                                          alm_tim_cnt = 0;
+ 483   4                                          beep = 1;
+ 484   4                                              if (password_err_cnt>=3)
+ 485   4                                              {
+ 486   5                              lock_flag = 1;
+ 487   5                              password_err_cnt = 0;
+ 488   5                                                      return;
+ 489   5                                              }
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 9   
+
+ 490   4                                              else
+ 491   4                                              {
+ 492   5                                                      now_window = inputpassword;
+ 493   5                                                      wri_string(1,0,"Input password  ");//
+ 494   5                                  wri_string(2,0,"                ");//
+ 495   5                                  lcd1602_cursor(1,0);
+ 496   5                                              }
+ 497   4                                      }
+ 498   3                              }
+ 499   2                              if (lock_flag)//错误三次
+ 500   2                              {
+ 501   3                                              if(alm_flag)
+ 502   3                                              {
+ 503   4                                                       if (alm_tim_cnt==0)
+ 504   4                                                       {
+ 505   5                                                               alm_flag = 0;
+ 506   5                                               alm_tim_cnt = 5;
+ 507   5                                                               beep = 1;
+ 508   5                                                       }
+ 509   4                                              }
+ 510   3                                              else
+ 511   3                                              {
+ 512   4                                                       if (alm_tim_cnt==0)
+ 513   4                                                       {
+ 514   5                                                               alm_flag = 1;
+ 515   5                                               alm_tim_cnt = 5;
+ 516   5                                                               beep = 0;
+ 517   5                                                       }
+ 518   4                                              }
+ 519   3                                              wri_string(1,0,"  Machine lock  ");//初始化显示
+ 520   3                                              wri_string(2,0,"   one minute   ");//初始化显示
+ 521   3                                              lcd1602_cursor(0,0);
+ 522   3                                              now_window = keynoser;//按键不响应
+ 523   3                                              if(++err_tim_cnt>= 10 * 30)
+ 524   3                                              {
+ 525   4      
+ 526   4                                                      now_window = chosemod;
+ 527   4                              err_tim_cnt = 0;
+ 528   4                              lock_flag = 0;
+ 529   4                              beep = 1;
+ 530   4                                                      wri_string(1,0,"  welcome user  ");//初始化显示
+ 531   4                                                      wri_string(2,0,"A:open  B:modify");//初始化显示
+ 532   4                                              }
+ 533   3      
+ 534   3                              }
+ 535   2                              if(cha_err_flag)//输入有误
+ 536   2                              {
+ 537   3                                      if(alm_flag)
+ 538   3                                      {
+ 539   4                                               if (alm_tim_cnt==0)
+ 540   4                                               {
+ 541   5                                                       alm_flag = 0;
+ 542   5                                       alm_tim_cnt = 5;
+ 543   5                                                       beep = 1;
+ 544   5                                               }
+ 545   4                                      }
+ 546   3                                      else
+ 547   3                                      {
+ 548   4                                               if (alm_tim_cnt==0)
+ 549   4                                               {
+ 550   5                                                       alm_flag = 1;
+ 551   5                                       alm_tim_cnt = 5;
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 10  
+
+ 552   5                                                       beep = 0;
+ 553   5                                               }
+ 554   4                                      }
+ 555   3                                      if (++cha_err_cnt>10*2)
+ 556   3                                      {
+ 557   4                                              cha_err_flag = 0;
+ 558   4                                              cha_err_cnt = 0;
+ 559   4                                              now_window = chosemod;
+ 560   4                                              wri_string(1,0,"  welcome user  ");//初始化显示
+ 561   4                                              wri_string(2,0,"A:open  B:modify");//初始化显示
+ 562   4                                      }
+ 563   3                              }
+ 564   2                      }
+ 565   1      }
+ 566          /******************************************************
+ 567           ** 函数名：key_service
+ 568           ** 描述  ：按键服务函数
+ 569           ** 输入  ：无
+ 570           ** 输出  ：无
+ 571           ** 调用  ：主程序
+ 572          ******************************************************/
+ 573          void key_service(void)
+ 574          {
+ 575   1              switch (now_window)
+ 576   1              {
+ 577   2      
+ 578   2                    case chosemod:
+ 579   2                    {
+ 580   3                           switch (key_value)
+ 581   3                           {
+ 582   4                                  case 10://输入密码
+ 583   4                                  {
+ 584   5                                      wri_string(1,0,"Input password  ");//
+ 585   5                                      wri_string(2,0,"                ");//
+ 586   5                                      lcd1602_cursor(1,0);
+ 587   5                                                                      now_window = inputpassword;
+ 588   5                                  }
+ 589   4                                  break;
+ 590   4                                  case 11://设置密码
+ 591   4                                  {
+ 592   5                                      wri_string(1,0,"Put Old Password ");//
+ 593   5                                          wri_string(2,0,"                 ");//
+ 594   5                                          lcd1602_cursor(1,0);
+ 595   5                                                                      now_window = changeoldpassword;
+ 596   5                                  }
+ 597   4                                  break;
+ 598   4                                  case 12://设置密码
+ 599   4                                  {
+ 600   5                                          password[0] = 1;
+ 601   5                                          password[1] = 1;
+ 602   5                                          password[2] = 1;
+ 603   5                                          password[3] = 1;
+ 604   5                                          password[4] = 1;
+ 605   5                                          password[5] = 1;
+ 606   5                                          At24c02WriteBuf(password,0,6);
+ 607   5                                                                              delay_ms(300);
+ 608   5                                                                              beep = 0;
+ 609   5                                                                              delay_ms(2000);
+ 610   5                                                                              beep = 1;
+ 611   5                                  }
+ 612   4                                  break;
+ 613   4                           }
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 11  
+
+ 614   3                    }
+ 615   2                    break;
+ 616   2                    case inputpassword://输入密码
+ 617   2                    {
+ 618   3                              switch (key_value)
+ 619   3                              {
+ 620   4                                                      case 1: case 2:case 3:
+ 621   4                                                      case 4: case 5:case 6:
+ 622   4                                                      case 7: case 8:case 9:case 0:
+ 623   4                                                      {
+ 624   5                                                              password_now[curr_bit] = key_value;
+ 625   5                                                              if (++curr_bit>6)//输入6位密码
+ 626   5                                                              {
+ 627   6                                                                      curr_bit = 6;
+ 628   6                                                              }
+ 629   5                                                              curr_bit_tmp = curr_bit;
+ 630   5                                                              for(i=0;i<curr_bit_tmp;i++)//显示*号
+ 631   5                                                              dis_dat[i] = '*';
+ 632   5                                                                                      wri_string(2,0,dis_dat);
+ 633   5                                                                                      lcd1602_cursor(1, curr_bit);
+ 634   5                                                      }
+ 635   4                                                      break;
+ 636   4                                                      case 14://按下#删除密码
+ 637   4                                                      {
+ 638   5                                                              password_now[curr_bit] = 20;
+ 639   5                                                              if (--curr_bit<0)
+ 640   5                                                                      curr_bit = 0;
+ 641   5                                                                                      dis_dat[curr_bit] = ' ';//显示为空
+ 642   5                                                                                      wri_string(2,0,dis_dat);
+ 643   5                                                                                      lcd1602_cursor(1, curr_bit);
+ 644   5                                                      }
+ 645   4                                                      break;
+ 646   4                                                      case 15://按下确认比对密码
+ 647   4                                                      {
+ 648   5                                                              if(
+ 649   5                                                                      password_now[0] == password[0]&&
+ 650   5                                                                  password_now[1] == password[1]&&
+ 651   5                                                                      password_now[2] == password[2]&&
+ 652   5                                                                      password_now[3] == password[3]&&
+ 653   5                                                                      password_now[4] == password[4]&&
+ 654   5                                                                      password_now[5] == password[5]
+ 655   5                                                                )
+ 656   5                                                              {
+ 657   6      
+ 658   6                                                                      relay = 0;//打开继电器
+ 659   6                                                                      wri_string(1,0,"    success    ");
+ 660   6                                                                                              wri_string(2,0,"     open      ");
+ 661   6                                                                                              lcd1602_cursor(0, curr_bit);
+ 662   6                                                                                              now_window = keynoser;//按键不响应
+ 663   6                                                              }
+ 664   5                                                              else
+ 665   5                                                              {
+ 666   6                                                                                                password_err_cnt++;
+ 667   6                                                                        open_flag = 1;//错误标志
+ 668   6                                                                        wri_string(1,0,"password err   ");
+ 669   6                                                                                                wri_string(2,0,"  err cnt:     ");
+ 670   6                                                                                                lcd_write_char(2,10,password_err_cnt);
+ 671   6                                                                                                lcd1602_cursor(0, curr_bit);
+ 672   6                                                                                                now_window = keynoser;//按键不响应
+ 673   6                                                                                                alm_flag = 1;
+ 674   6                                                                                                alm_tim_cnt = 4;
+ 675   6                                                                                                beep = 0;
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 12  
+
+ 676   6                                                              }
+ 677   5                                                              for(i = 0;i < 6;i++)
+ 678   5                                                              {
+ 679   6                                                                                                dis_dat[i] = 0;
+ 680   6                                                                        password_now[i] = 0;
+ 681   6                                                                        curr_bit = 0;
+ 682   6                                                                        curr_bit_tmp = 0;
+ 683   6                                                              }
+ 684   5                                                      }
+ 685   4                                                              break;
+ 686   4                                      }
+ 687   3                    }
+ 688   2                    break;
+ 689   2                    case changeoldpassword://修改密前输入旧密码
+ 690   2                    {
+ 691   3                              switch (key_value)
+ 692   3                              {
+ 693   4                                                      case 1: case 2:case 3:
+ 694   4                                                      case 4: case 5:case 6:
+ 695   4                                                      case 7: case 8:case 9:case 0:
+ 696   4                                                      {
+ 697   5                                                              password_now[curr_bit] = key_value;
+ 698   5                                                              if (++curr_bit>6)//输入6位密码
+ 699   5                                                              {
+ 700   6                                                                      curr_bit = 6;
+ 701   6                                                              }
+ 702   5                                                              curr_bit_tmp = curr_bit;
+ 703   5                                                              for(i=0;i<curr_bit_tmp;i++)//显示*号
+ 704   5                                                              dis_dat[i] = '*';
+ 705   5                                                                                      wri_string(2,0,dis_dat);
+ 706   5                                                                                      lcd1602_cursor(1, curr_bit);
+ 707   5                                                      }
+ 708   4                                                      break;
+ 709   4                                                      case 14://按下#删除密码
+ 710   4                                                      {
+ 711   5                                                              password_now[curr_bit] = 20;
+ 712   5                                                              if (--curr_bit<0)
+ 713   5                                                                      curr_bit = 0;
+ 714   5                                                                                      dis_dat[curr_bit] = ' ';//显示为空
+ 715   5                                                                                      wri_string(2,0,dis_dat);
+ 716   5                                                                                      lcd1602_cursor(1, curr_bit);
+ 717   5                                                      }
+ 718   4                                                      break;
+ 719   4                                                      case 15://按下确认比对密码
+ 720   4                                                      {
+ 721   5                                                              if(
+ 722   5                                                                      password_now[0] == password[0]&&
+ 723   5                                                                  password_now[1] == password[1]&&
+ 724   5                                                                      password_now[2] == password[2]&&
+ 725   5                                                                      password_now[3] == password[3]&&
+ 726   5                                                                      password_now[4] == password[4]&&
+ 727   5                                                                      password_now[5] == password[5]
+ 728   5                                                                )
+ 729   5                                                              {
+ 730   6                                                                      wri_string(1,0,"    success    ");
+ 731   6                                                  delay_ms(500);
+ 732   6                                                  wri_string(1,0,"Set New Password ");//
+ 733   6                                                      wri_string(2,0,"                 ");//
+ 734   6                                                      lcd1602_cursor(1,0);
+ 735   6                                                                                              now_window = changepassword;//按键不响应
+ 736   6                                                              }
+ 737   5                                                              else
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 13  
+
+ 738   5                                                              {
+ 739   6                                                    lcd1602_cursor(0,0);
+ 740   6                                                                        wri_string(1,0,"password err    ");
+ 741   6                                                    wri_string(2,0,"                ");
+ 742   6                                                                                                delay_ms(500);
+ 743   6                                                    delay_ms(500);
+ 744   6                                                    delay_ms(500);
+ 745   6                                                    delay_ms(500);
+ 746   6                                                    wri_string(1,0,"  welcome user  ");//初始化显示
+ 747   6                                                                        wri_string(2,0,"A:open  B:modify");//初始化显示
+ 748   6                                                                                                now_window = chosemod;
+ 749   6      
+ 750   6                                                              }
+ 751   5                                                              for(i = 0;i < 6;i++)
+ 752   5                                                              {
+ 753   6                                                                                                dis_dat[i] = 0;
+ 754   6                                                                        password_now[i] = 0;
+ 755   6                                                                        curr_bit = 0;
+ 756   6                                                                        curr_bit_tmp = 0;
+ 757   6                                                              }
+ 758   5                                                      }
+ 759   4                                                              break;
+ 760   4                                      }
+ 761   3                    }
+ 762   2                    break;
+ 763   2                    case changepassword://修改密码
+ 764   2                    {
+ 765   3                                               switch (key_value)
+ 766   3                                               {
+ 767   4                                                              case 1: case 2:case 3:
+ 768   4                                              case 4: case 5:case 6:
+ 769   4                                              case 7: case 8:case 9:case 0:
+ 770   4                                              {
+ 771   5                                                      password_now[curr_bit] = key_value;
+ 772   5                                                      if (++curr_bit>6)//输入6位密码
+ 773   5                                                      {
+ 774   6                                                              curr_bit = 6;
+ 775   6                                                      }
+ 776   5                                                      curr_bit_tmp = curr_bit;
+ 777   5                                                      for(i=0;i<curr_bit_tmp;i++)//显示*号
+ 778   5                                                      dis_dat[i] = '*';
+ 779   5                                                                      wri_string(2,0,dis_dat);
+ 780   5                                                                      lcd1602_cursor(1, curr_bit);
+ 781   5                                              }
+ 782   4                                              break;
+ 783   4                                                          case 14:
+ 784   4                                              {
+ 785   5                                                      password_now[curr_bit] = 20;
+ 786   5                                                      if (--curr_bit<0)
+ 787   5                                                              curr_bit = 0;
+ 788   5                                                                      dis_dat[curr_bit] = ' ';//显示为空
+ 789   5                                                                      wri_string(2,0,dis_dat);
+ 790   5                                                                      lcd1602_cursor(1, curr_bit);
+ 791   5                                              }
+ 792   4                                              break;
+ 793   4                                                              case 15:
+ 794   4                                                              {
+ 795   5      
+ 796   5                                                                      for(i = 0;i < 6;i++)
+ 797   5                                                      {
+ 798   6                                                                        dis_dat[i] = 0;
+ 799   6                                                        curr_bit = 0;
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 14  
+
+ 800   6                                                        curr_bit_tmp = 0;
+ 801   6                                                      }
+ 802   5                                                                      wri_string(1,0,"   put again    ");//再次输入
+ 803   5                                          wri_string(2,0,"                ");//
+ 804   5                                          lcd1602_cursor(1,0);
+ 805   5                                                                      now_window = putagain;
+ 806   5                                                              }
+ 807   4                                                              break;
+ 808   4                                               }
+ 809   3                    }
+ 810   2                    break;
+ 811   2                                case putagain://修改密码后再次输入
+ 812   2                                {
+ 813   3                                       switch (key_value)
+ 814   3                                       {
+ 815   4                                                              case 1: case 2:case 3:
+ 816   4                                              case 4: case 5:case 6:
+ 817   4                                              case 7: case 8:case 9:case 0:
+ 818   4                                              {
+ 819   5                                                      chang_pass[curr_bit] = key_value;
+ 820   5                                                      if (++curr_bit>6)//输入6位密码
+ 821   5                                                      {
+ 822   6                                                              curr_bit = 6;
+ 823   6                                                      }
+ 824   5                                                      curr_bit_tmp = curr_bit;
+ 825   5                                                      for(i=0;i<curr_bit_tmp;i++)//显示*号
+ 826   5                                                      dis_dat[i] = '*';
+ 827   5                                                                      wri_string(2,0,dis_dat);
+ 828   5                                                                      lcd1602_cursor(1, curr_bit);
+ 829   5                                              }
+ 830   4                                              break;
+ 831   4                                                              case 14:
+ 832   4                                              {
+ 833   5                                                      chang_pass[curr_bit] = 20;
+ 834   5                                                      if (--curr_bit<0)
+ 835   5                                                              curr_bit = 0;
+ 836   5                                                                      dis_dat[curr_bit] = ' ';//显示为空
+ 837   5                                                                      wri_string(2,0,dis_dat);
+ 838   5                                                                      lcd1602_cursor(1, curr_bit);
+ 839   5                                              }
+ 840   4                                              break;
+ 841   4                                                              case 15:
+ 842   4                                                              {
+ 843   5      
+ 844   5      
+ 845   5                                                                      if(
+ 846   5                                                                      password_now[0] == chang_pass[0]&&
+ 847   5                                                                  password_now[1] == chang_pass[1]&&
+ 848   5                                                                      password_now[2] == chang_pass[2]&&
+ 849   5                                                                      password_now[3] == chang_pass[3]&&
+ 850   5                                                                      password_now[4] == chang_pass[4]&&
+ 851   5                                                                      password_now[5] == chang_pass[5]
+ 852   5                                                )
+ 853   5                                                                      {
+ 854   6                                                                              wri_string(1,0,"change Password ");
+ 855   6                                                                              wri_string(2,0,"    Succeed     ");
+ 856   6                                                                              for(i=0;i<6;i++)
+ 857   6                                                                              {
+ 858   7                                                                                      password[i] = chang_pass[i];   //保存密码
+ 859   7                                                                              }
+ 860   6                                                                              At24c02WriteBuf(password,0,6);
+ 861   6                                                                              delay_ms(300);
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 15  
+
+ 862   6                                                                              beep = 0;
+ 863   6                                                                              delay_ms(2000);
+ 864   6                                                                              beep = 1;
+ 865   6                                                                              now_window = chosemod;
+ 866   6                                                                              wri_string(1,0,"  welcome user  ");//初始化显示
+ 867   6                                                                              wri_string(2,0,"A:open  B:modify");//初始化显示
+ 868   6                                                                      }
+ 869   5                                                                      else
+ 870   5                                                                      {
+ 871   6                                                                                  cha_err_flag = 1;
+ 872   6                                                                                      wri_string(1,0," Two different  ");
+ 873   6                                                                                      wri_string(2,0,"     return     ");
+ 874   6                                                                                      now_window = keynoser;//按键不响应
+ 875   6                                                                                      alm_flag = 1;
+ 876   6                                                                                      alm_tim_cnt = 5;
+ 877   6                                                                                      beep = 0;
+ 878   6                                                                      }
+ 879   5                                                                      for(i = 0;i < 6;i++)
+ 880   5                                                      {
+ 881   6                                                                        dis_dat[i] = 0;
+ 882   6                                                        password_now[i] = 0;
+ 883   6                                                        curr_bit = 0;
+ 884   6                                                        curr_bit_tmp = 0;
+ 885   6                                                      }
+ 886   5      
+ 887   5                                                              }
+ 888   4                                                              break;
+ 889   4      
+ 890   4                                       }
+ 891   3                                }
+ 892   2                                break;
+ 893   2              }
+ 894   1      
+ 895   1      
+ 896   1      }
+ 897          /******************************************************
+ 898           ** 函数名：init_all_hardware
+ 899           ** 描述  ：初始化所有硬件，及其变量参数。
+ 900           ** 输入  ：无
+ 901           ** 输出  ：无
+ 902           ** 调用  ：主程序
+ 903           ******************************************************/
+ 904          void init_all_hardware(void)
+ 905          {
+ 906   1                      delay_ms(100);
+ 907   1                      time_init();//定时器初始化
+ 908   1              lcd_init();//液晶初始化
+ 909   1                      At24c02init();//存储初始化
+ 910   1                      key_value = 20;//默认没按键按下
+ 911   1                      now_window = chosemod;//选择模式
+ 912   1                      cnt_100ms = 0;
+ 913   1                      time_100ms_flag = 0;
+ 914   1                      open_del = 0;
+ 915   1                      relay = 1;//继电器关闭。
+ 916   1                      curr_bit = 0;
+ 917   1                      open_flag = 0;
+ 918   1                      password_err_cnt =0;
+ 919   1                      err_tim_cnt = 0;
+ 920   1                      alm_tim_cnt = 0;
+ 921   1                      alm_flag = 0;
+ 922   1                      cha_err_flag = 0;
+ 923   1                      cha_err_cnt = 0;
+C51 COMPILER V9.01   MAIN                                                                  05/25/2019 16:09:00 PAGE 16  
+
+ 924   1              beep = 1;
+ 925   1              lock_flag =0;
+ 926   1      }
+ 927          void main(void)
+ 928          {
+ 929   1               init_all_hardware();//初始化硬件，IO和定时器
+ 930   1               while(1)
+ 931   1               {
+ 932   2                       key_scan();//按键扫描
+ 933   2                       key_service();//按键服务处理函数
+ 934   2                       time_service();//时间处理函数
+ 935   2               }
+ 936   1      }
+ 937           /******************************************************
+ 938           ** 函数名：time0_interrupt
+ 939           ** 描述  ：按键扫描函数
+ 940           ** 输入  ：无
+ 941           ** 输出  ：无
+ 942           ******************************************************/
+ 943          void time0_interrupt() interrupt 1
+ 944          {
+ 945   1                 TF0 = 0;//清除标志
+ 946   1                 TR0 = 0;
+ 947   1                 if (++cnt_100ms>50)
+ 948   1                 {
+ 949   2                              cnt_100ms = 0;
+ 950   2                              time_100ms_flag = 1;
+ 951   2                 }
+ 952   1                 TR0 = 1;
+ 953   1                 TH0 = 0xf8;
+ 954   1                 TL0 = 0x2f;//装载初值2ms(65535-63535)
+ 955   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2399    ----
+   CONSTANT SIZE    =    322    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     46      16
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

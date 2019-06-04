@@ -1,0 +1,36 @@
+<html>
+<body>
+<pre>
+<h1>µVision Build Log</h1>
+<h2>Project:</h2>
+D:\øŒ…Ë\A2_A10\code\code.uvproj
+Project File Date:  05/25/2019
+
+<h2>Output:</h2>
+Build target 'code'
+compiling main.c...
+MAIN.C(251): warning C214: 'Argument': conversion: pointer to non-pointer
+MAIN.C(255): warning C214: 'Argument': conversion: pointer to non-pointer
+linking...
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?LCDINIT?LCD
+Program Size: data=81.0 xdata=0 code=3069
+creating hex file from "code"...
+"code" - 0 Error(s), 3 Warning(s).
+Build target 'code'
+compiling main.c...
+MAIN.C(251): warning C214: 'Argument': conversion: pointer to non-pointer
+linking...
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?LCDINIT?LCD
+Program Size: data=81.0 xdata=0 code=3052
+creating hex file from "code"...
+"code" - 0 Error(s), 2 Warning(s).
+Build target 'code'
+compiling main.c...
+linking...
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?LCDINIT?LCD
+Program Size: data=81.0 xdata=0 code=3057
+creating hex file from "code"...
+"code" - 0 Error(s), 1 Warning(s).
